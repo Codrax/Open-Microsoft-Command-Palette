@@ -8,6 +8,7 @@ uses
   System.Classes,
   Cod.Windows,
   Vcl.Forms,
+  ShellAPI,
   Cod.Instances;
 
 {$R *.res}
@@ -61,6 +62,19 @@ var
   Window: HWND;
 begin
   Window := GetCommandPaletteAppHWND;
+
+  // Try to start
+  if Window = 0 then
+    for var I := 1 to 10 do begin
+      // Attempt to start command palette
+      ShellExecute(0, 'open', 'x-cmdpal://', nil, nil, SW_SHOW);
+
+      Sleep(500);
+      Window := GetCommandPaletteAppHWND;
+
+      if Window <> 0 then
+        Break;
+    end;
 
   // Click
   SimulateTrayClick(Window);
