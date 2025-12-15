@@ -9,9 +9,33 @@ uses
   Cod.Windows,
   Vcl.Forms,
   ShellAPI,
-  Cod.Instances;
+  Vcl.ExtCtrls,
+  Cod.Instances,
+  Winapi.ActiveX,
+  System.Win.ComObj,
+  Winapi.Winrt,
+  Winapi.ApplicationModel,
+  Cod.WindowsRT,
+  Cod.WindowsRT.ActivationManager,
+  Cod.UWP,
+  Winapi.Management;
 
 {$R *.res}
+
+procedure AttachThreadFocusWindow(Window: HWND);
+var
+  ForeThread, ThisThread: DWORD;
+begin
+  ForeThread := GetWindowThreadProcessId(GetForegroundWindow(), nil);
+  ThisThread := GetCurrentThreadId();
+
+  if AttachThreadInput(ThisThread, ForeThread, True) then begin
+    SetForegroundWindow(Window);
+    SetActiveWindow(Window);
+    BringWindowToTop(Window);
+    AttachThreadInput(ThisThread, ForeThread, False);
+  end;
+end;
 
 function GetCommandPaletteAppHWND: HWND;
 var
@@ -29,56 +53,47 @@ begin
   Result := AFound;
 end;
 
-procedure SimulateTrayClick(AppHWND: HWND);
+procedure DoRunCommandPalette;
 const
-  WM_TRAY_CALLBACK = WM_USER + 1;  // Vcl.ExtCtrls
-  WM_LBUTTONDOWN = $0201;
-  WM_LBUTTONUP   = $0202;
-begin
-  if not IsWindow(AppHWND) then Exit;
-
-  // LBUTTONDOWN
-  PostMessage(AppHWND, WM_TRAY_CALLBACK, 0, WM_LBUTTONDOWN);
-
-  // LBUTTONUP
-  PostMessage(AppHWND, WM_TRAY_CALLBACK, 0, WM_LBUTTONUP);
-end;
-
-procedure FocusWindow(Window: HWND);
+  APP_FAMILYNAME = 'Microsoft.CommandPalette_8wekyb3d8bbwe';
+  APP_ACTIVATIONNAME = '!App';
 var
-  ForeThread, ThisThread: DWORD;
+  Mgr: IApplicationActivationManager;
+  PID: dword;
+  aHWND: HWND;
 begin
-  ForeThread := GetWindowThreadProcessId(GetForegroundWindow(), nil);
-  ThisThread := GetCurrentThreadId();
-
-  AttachThreadInput(ThisThread, ForeThread, True);
-  SetForegroundWindow(Window);
-  SetActiveWindow(Window);
-  BringWindowToTop(Window);
-  AttachThreadInput(ThisThread, ForeThread, False);
-end;
-
-var
-  Window: HWND;
-begin
-  Window := GetCommandPaletteAppHWND;
-
-  // Try to start
-  if Window = 0 then
-    for var I := 1 to 10 do begin
-      // Attempt to start command palette
-      ShellExecute(0, 'open', 'x-cmdpal://', nil, nil, SW_SHOW);
-
-      Sleep(500);
-      Window := GetCommandPaletteAppHWND;
-
-      if Window <> 0 then
-        Break;
-    end;
+  // Exists?
+  const PackageManager = TDeployment_PackageManager.Create;
+  var Iterable: IIterable_1__IPackage;
+  const FamName = HSTRING.Create(APP_FAMILYNAME);
+  const UserSID = HSTRING.Create(GetUserCLSID);
+  try
+    Iterable := PackageManager.FindPackagesForUser(UserSID, FamName);
+  except
+    FamName.Free;
+    UserSID.Free;
+  end;
+  if not Iterable.First.HasCurrent then begin
+    with TTrayIcon.Create(Application) do
+      try
+        Visible := true;
+        BalloonTitle := 'Command Palette was not found!';
+        BalloonHint := 'We''ve attempted to run the app but it does not seem to be installed on your device.';
+        ShowBalloonHint;
+        Visible := false;
+      except
+      end;
+  end;
 
   // Click
-  SimulateTrayClick(Window);
+  Mgr := TApplicationActivationManager.Create;
+  Mgr.ActivateApplication(APP_FAMILYNAME+APP_ACTIVATIONNAME, nil, ActivateOptions.None, PID);
 
-  // Bring to top
-  FocusWindow( Window );
+  // Focus Window
+  aHWND := GetCommandPaletteAppHWND;
+  AttachThreadFocusWindow(aHWND);
+end;
+
+begin
+  DoRunCommandPalette;
 end.
